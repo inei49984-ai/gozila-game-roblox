@@ -132,7 +132,7 @@ MainTab:AddButton({
 
 -- [3] 5連撃バーストスイッチ
 local AttackToggle = MainTab:AddToggle("AttackToggle", {
-    Title = "🔥 5連撃バースト攻撃 (MAX SPEED)",
+    Title = "👊高速攻撃 (MAX SPEED)",
     Default = false
 })
 AttackToggle:OnChanged(function(Value) isAttackOn = Value end)
