@@ -8,17 +8,20 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService") -- Tween用のサービス
+local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 
 -- 全てローカル変数で状態を管理
 local isTeleportOn = false
 local isAttackOn = false
 local isBehindOn = false
-local isFrontOn = true    -- デフォルトON
-local isTweenOn = false   -- 【追加】Tweenモード（デフォルトOFF）
+local isFrontOn = true    
+local isTweenOn = false   
 local currentDistance = 50
 local targetPlayerName = "最寄り自動追尾"
+
+local isSpeedOn = false
+local walkSpeedValue = 16 
 
 local teleportConnection = nil
 
@@ -74,12 +77,7 @@ end
 createToggleIcon()
 
 -- ==========================================
--- 5. タブの作成
--- ==========================================
-local MainTab = Window:AddTab({ Title = "メイン機能", Icon = "zap" })
-
--- ==========================================
--- 6. 最寄りプレイヤー取得ロジック
+-- 5. 最寄りプレイヤー取得ロジック
 -- ==========================================
 local function getNearestPlayer()
     local myChar = player.Character
@@ -107,17 +105,16 @@ local function getNearestPlayer()
 end
 
 -- ==========================================
--- 7. 【メイン機能】UIパーツ配置
+-- 6. 【メイン機能】UIパーツ配置
 -- ==========================================
+local MainTab = Window:AddTab({ Title = "メイン機能", Icon = "zap" })
 
 -- [1] テレポート開始スイッチ
 local TeleportToggle = MainTab:AddToggle("TeleportToggle", {
     Title = "🚀 テレポート開始 (START TELEPORT)",
     Default = false
 })
-TeleportToggle:OnChanged(function(Value)
-    isTeleportOn = Value
-end)
+TeleportToggle:OnChanged(function(Value) isTeleportOn = Value end)
 
 -- [2] 最寄り自動追尾ボタン
 MainTab:AddButton({
@@ -138,39 +135,47 @@ local AttackToggle = MainTab:AddToggle("AttackToggle", {
     Title = "🔥 5連撃バースト攻撃 (MAX SPEED)",
     Default = false
 })
-AttackToggle:OnChanged(function(Value)
-    isAttackOn = Value
-end)
+AttackToggle:OnChanged(function(Value) isAttackOn = Value end)
 
 -- [4] 背後回り込みスイッチ
 local BehindToggle = MainTab:AddToggle("BehindToggle", {
     Title = "🔙 敵の背後に回り込む",
     Default = false
 })
-BehindToggle:OnChanged(function(Value)
-    isBehindOn = Value
-end)
+BehindToggle:OnChanged(function(Value) isBehindOn = Value end)
 
 -- [5] 正面回り込みスイッチ
 local FrontToggle = MainTab:AddToggle("FrontToggle", {
     Title = "🎯 敵の正面に回り込む",
     Default = true
 })
-FrontToggle:OnChanged(function(Value)
-    isFrontOn = Value
-end)
+FrontToggle:OnChanged(function(Value) isFrontOn = Value end)
 
--- [6] 【新機能】Tweenモードスイッチ（説明付き・デフォルトOFF）
+-- [6] Tweenモードスイッチ
 local TweenToggle = MainTab:AddToggle("TweenToggle", {
     Title = "✈️ Tween（滑らか移動）モード",
     Description = "一瞬で消えるワープではなく、ビューン!と超高速で走って近づく安全なモードです",
     Default = false
 })
-TweenToggle:OnChanged(function(Value)
-    isTweenOn = Value
-end)
+TweenToggle:OnChanged(function(Value) isTweenOn = Value end)
 
--- [7] 距離スライダー
+-- [7] 移動速度調節トグル ＆ スライダー
+local SpeedToggle = MainTab:AddToggle("SpeedToggle", {
+    Title = "⚡ 移動速度調節を有効化",
+    Default = false
+})
+SpeedToggle:OnChanged(function(Value) isSpeedOn = Value end)
+
+local SpeedSlider = MainTab:AddSlider("SpeedSlider", {
+    Title = "🏃‍♂️ キャラクターの走る速度 (SPEED)",
+    Min = 16,
+    Max = 200,
+    Default = 16,
+    Rounding = 0
+})
+SpeedSlider:OnChanged(function(Value) walkSpeedValue = Value end)
+
+-- [8] 距離スライダー
 local DistanceSlider = MainTab:AddSlider("DistanceSlider", {
     Title = "🎯 ターゲットとの設定距離 (DISTANCE)",
     Min = 0,
@@ -178,11 +183,9 @@ local DistanceSlider = MainTab:AddSlider("DistanceSlider", {
     Default = 50,
     Rounding = 0
 })
-DistanceSlider:OnChanged(function(Value)
-    currentDistance = Value
-end)
+DistanceSlider:OnChanged(function(Value) currentDistance = Value end)
 
--- [8] プリセット30ボタン
+-- [9] プリセット30ボタン
 MainTab:AddButton({
     Title = "🔮 プリセット: ファイナルウォーズ (30)",
     Callback = function()
@@ -196,11 +199,13 @@ MainTab:AddButton({
     end
 })
 
--- [9] プレイヤー個別選択ドロップダウン
+-- [10] プレイヤー個別選択ドロップダウン
 local function getPlayerList()
     local names = {"最寄り自動追尾"}
     for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= player then table.insert(names, plr.Name) end
+        if plr ~= player then 
+            table.insert(names, plr.Name)
+        end
     end
     return names
 end
@@ -225,7 +230,7 @@ Players.PlayerRemoving:Connect(function() PlayerDropdown:SetValues(getPlayerList
 
 
 -- ==========================================
--- 8. メインループ
+-- 7. メインループ
 -- ==========================================
 if teleportConnection then teleportConnection:Disconnect() end
 
@@ -233,7 +238,8 @@ teleportConnection = RunService.RenderStepped:Connect(function()
     local myChar = player.Character
     if not myChar then return end
     local myHrp = myChar:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return end
+    local myHum = myChar:FindFirstChildOfClass("Humanoid")
+    if not myHrp or not myHum then return end
 
     -- 1. 5連撃バースト攻撃
     if isAttackOn then
@@ -250,7 +256,10 @@ teleportConnection = RunService.RenderStepped:Connect(function()
         end)
     end
 
-    -- 2. テレポート・移動処理
+    -- 2. スピード調節
+    if isSpeedOn then myHum.WalkSpeed = walkSpeedValue end
+
+    -- 3. テレポート処理
     if isTeleportOn then
         local targetPlr = nil
         
@@ -269,7 +278,6 @@ teleportConnection = RunService.RenderStepped:Connect(function()
                 local computedPosition
                 local lookDirection = tHrp.CFrame.LookVector
 
-                -- 位置計算の分岐（正面 ＞ 背後 ＞ 通常）
                 if isFrontOn then
                     computedPosition = tHrp.Position + (lookDirection * currentDistance) + Vector3.new(0, 5, 0)
                 elseif isBehindOn then
@@ -278,14 +286,11 @@ teleportConnection = RunService.RenderStepped:Connect(function()
                     computedPosition = tHrp.Position + Vector3.new(0, 5, currentDistance)
                 end
                 
-                -- 移動方式の分岐（Tweenモード ＆ 通常ワープ）
                 if isTweenOn then
-                    -- 【Tweenモード】0.1秒でターゲット位置へ滑らかに走る
                     local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
                     local tween = TweenService:Create(myHrp, tweenInfo, {CFrame = CFrame.lookAt(computedPosition, tHrp.Position)})
                     tween:Play()
                 else
-                    -- 【通常ワープ】一瞬でパッと移動
                     myHrp.CFrame = CFrame.lookAt(computedPosition, tHrp.Position)
                 end
             end
